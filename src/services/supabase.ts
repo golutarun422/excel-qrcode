@@ -12,6 +12,10 @@ const STORAGE_KEY_DEMO_MODE = 'excel_qr_demo_mode';
 export function normalizeSupabaseUrl(inputUrl: string): string {
   let url = inputUrl.trim();
   if (!url) return '';
+  // Auto-correct common name vs project ref typo
+  if (url.includes('excel-qr-generator.supabase.co')) {
+    return 'https://jngrhftemjrotagjugrp.supabase.co';
+  }
   if (!/^https?:\/\//i.test(url)) {
     url = `https://${url}`;
   }
@@ -32,6 +36,10 @@ export function setDemoMode(enabled: boolean) {
   }
 }
 
+const DEFAULT_SUPABASE_URL = 'https://jngrhftemjrotagjugrp.supabase.co';
+const DEFAULT_SUPABASE_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuZ3JoZnRlbWpyb3RhZ2p1Z3JwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NTg2MDAsImV4cCI6MjEwNzQzNDYwMH0.8HuBtaP0I65R_r16EvxCBvrCGepY3x0jeIzhQze8YIQ';
+
 export function getStoredSupabaseConfig() {
   const envUrl = import.meta.env.VITE_SUPABASE_URL;
   const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -39,9 +47,9 @@ export function getStoredSupabaseConfig() {
   const localUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_URL) : null;
   const localKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_KEY) : null;
 
-  const rawUrl = (localUrl || envUrl || '').trim();
+  const rawUrl = (localUrl || envUrl || DEFAULT_SUPABASE_URL).trim();
   const url = normalizeSupabaseUrl(rawUrl);
-  const anonKey = (localKey || envKey || '').trim();
+  const anonKey = (localKey || envKey || DEFAULT_SUPABASE_KEY).trim();
 
   const isDemo = isDemoModeActive();
   const hasRealCredentials = Boolean(url && anonKey && !url.includes('your-project-id'));
