@@ -11,7 +11,7 @@ import {
 import type { AccessMode } from '../types/excelFile';
 import { validateExcelFile, DEFAULT_MAX_FILE_SIZE_BYTES } from '../utils/fileValidation';
 import { formatFileSize } from '../utils/formatFileSize';
-import { getStoredSupabaseConfig } from '../services/supabase';
+import { getStoredApiConfig } from '../services/apiConfig';
 
 interface ExcelUploaderProps {
   onStartUpload: (file: File, options: { accessMode: AccessMode; expiresInHours: number | null }) => void;
@@ -31,7 +31,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
   const [accessMode, setAccessMode] = useState<AccessMode>('public');
   const [expiresInHours, setExpiresInHours] = useState<number | null>(null);
 
-  const { isConfigured } = getStoredSupabaseConfig();
+  const { isConfigured } = getStoredApiConfig();
 
   const handleProcessFile = async (file: File) => {
     setValidationError(null);
@@ -86,15 +86,15 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
 
   return (
     <div className="w-full space-y-6">
-      {/* Missing Supabase Banner */}
+      {/* Missing Backend Banner */}
       {!isConfigured && (
         <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-sm font-bold text-amber-200">Supabase Connection Required</h4>
+              <h4 className="text-sm font-bold text-amber-200">Server Connection Required</h4>
               <p className="text-xs text-amber-300/80 mt-0.5">
-                To store Excel workbooks and generate live QR codes, enter your Supabase URL & Anon Key or run the included SQL migration.
+                To store Excel workbooks locally and generate live QR codes, connect your local backend server (running on port 3001) or Cloudflare Tunnel.
               </p>
             </div>
           </div>
@@ -102,7 +102,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
             onClick={onOpenSettings}
             className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition shrink-0 shadow-lg shadow-amber-500/20"
           >
-            Configure Now
+            Configure Server
           </button>
         </div>
       )}
@@ -166,7 +166,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
               <span>Max size: <strong className="text-slate-300">50 MB</strong></span>
               <span>•</span>
               <span className="flex items-center gap-1 text-emerald-400">
-                <ShieldCheck className="w-3.5 h-3.5" /> High-speed Supabase Storage
+                <ShieldCheck className="w-3.5 h-3.5" /> Secure Local Storage & SQLite
               </span>
             </div>
           </>

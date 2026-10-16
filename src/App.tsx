@@ -12,7 +12,7 @@ import { FileResultPage } from './pages/FileResultPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { PublicFilePage } from './pages/PublicFilePage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { SupabaseConfigModal } from './components/SupabaseConfigModal';
+import { ServerConfigModal } from './components/SupabaseConfigModal';
 import { ToastProvider, useToast } from './components/Toast';
 
 function AppContent() {
@@ -69,7 +69,7 @@ function AppContent() {
 
       await new Promise((r) => setTimeout(r, 400));
       setUploadProgress(45);
-      setUploadStatusMessage('Uploading to Supabase Storage...');
+      setUploadStatusMessage('Saving to Local Storage...');
 
       const record = await uploadExcelWorkbook(file, {
         accessMode: options.accessMode,
@@ -197,14 +197,14 @@ function AppContent() {
       <footer className="relative z-10 border-t border-slate-900 bg-slate-950/60 py-6 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p>
-            Excel QR Generator • Powered by Supabase Storage & PostgreSQL
+            Excel QR Generator • Powered by Local Storage & SQLite
           </p>
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="text-slate-400 hover:text-emerald-400 transition"
             >
-              Supabase Configuration
+              Storage & Server Configuration
             </button>
             <span>•</span>
             <span className="font-mono text-[11px] text-slate-500">Level H Error Correction</span>
@@ -212,8 +212,8 @@ function AppContent() {
         </div>
       </footer>
 
-      {/* Supabase Settings / Setup Modal */}
-      <SupabaseConfigModal
+      {/* Storage Backend & Tunnel Settings Modal */}
+      <ServerConfigModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onConfigSaved={refreshHistory}

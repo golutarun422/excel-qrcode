@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import type { QRGenerationOptions } from '../types/excelFile';
-import { getCustomBaseUrl } from './supabase';
+import { getCustomBaseUrl } from './apiConfig';
 
 const DEFAULT_OPTIONS: Required<QRGenerationOptions> = {
   size: 512,

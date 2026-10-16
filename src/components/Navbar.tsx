@@ -1,6 +1,6 @@
 import React from 'react';
 import { QrCode, FileSpreadsheet, History, Settings, CheckCircle2, AlertTriangle, Play } from 'lucide-react';
-import { getStoredSupabaseConfig } from '../services/supabase';
+import { getStoredApiConfig } from '../services/apiConfig';
 
 interface NavbarProps {
   currentTab: 'home' | 'history';
@@ -15,7 +15,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   historyCount,
 }) => {
-  const { isConfigured, isDemoMode } = getStoredSupabaseConfig();
+  const { isConfigured, isDemoMode } = getStoredApiConfig();
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-xl">
@@ -77,7 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Supabase status / Settings button */}
+          {/* Storage backend status / Settings button */}
           <button
             onClick={onOpenSettings}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
@@ -87,7 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-emerald-500/40 hover:text-white'
                 : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
             }`}
-            title="Configure Supabase Connection"
+            title="Configure Local Backend / Tunnel Connection"
           >
             {isDemoMode ? (
               <>
@@ -97,12 +97,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : isConfigured ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden md:inline">Supabase Connected</span>
+                <span className="hidden md:inline">Server Connected</span>
               </>
             ) : (
               <>
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                <span className="hidden md:inline">Setup Supabase</span>
+                <span className="hidden md:inline">Connect Server</span>
               </>
             )}
             <Settings className="w-3.5 h-3.5 opacity-70" />

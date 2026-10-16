@@ -1,6 +1,6 @@
 import type { AccessMode, ExcelFileRecord, LocalFileHistoryItem } from '../types/excelFile';
 import { buildFileAccessUrl } from './qrCodeService';
-import { getSupabaseClient, getStoredSupabaseConfig } from './supabase';
+import { getStoredApiConfig } from './apiConfig';
 import {
   saveDemoFile,
   getDemoFileRecord,
@@ -8,7 +8,6 @@ import {
   deleteDemoFile,
 } from './demoStorageService';
 
-const BUCKET_NAME = 'excel-files';
 const LOCAL_HISTORY_STORAGE_KEY = 'excel_qr_upload_history';
 
 /**
@@ -53,14 +52,16 @@ export function removeLocalHistoryItem(fileId: string) {
 }
 
 /**
- * Sanitize filename to prevent directory traversal or bad storage characters
+ * Find saved delete token for a file ID from local history
  */
-function sanitizeFilename(filename: string): string {
-  return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+export function getDeleteTokenForFile(fileId: string): string | undefined {
+  const history = getLocalUploadHistory();
+  const found = history.find((h) => h.id === fileId);
+  return found?.deleteToken;
 }
 
 /**
- * Main Upload Function: Uploads file to Supabase Storage or Demo Storage
+ * Main Upload Function: Uploads file to Local Storage Backend (or Demo Storage if enabled)
  */
 export async function uploadExcelWorkbook(
   file: File,
@@ -70,24 +71,22 @@ export async function uploadExcelWorkbook(
     signal?: AbortSignal;
   }
 ): Promise<ExcelFileRecord> {
-  const config = getStoredSupabaseConfig();
-  const fileId = crypto.randomUUID();
-  const safeName = sanitizeFilename(file.name);
-  const storagePath = `spreadsheets/${fileId}/${safeName}`;
-
-  let expiresAt: string | null = null;
-  if (options?.expiresInHours && options.expiresInHours > 0) {
-    const expDate = new Date();
-    expDate.setHours(expDate.getHours() + options.expiresInHours);
-    expiresAt = expDate.toISOString();
-  }
+  const config = getStoredApiConfig();
 
   // Demo Mode Handler
-  if (config.isDemoMode || !config.isRealSupabase) {
+  if (config.isDemoMode || !config.apiUrl) {
+    const fileId = crypto.randomUUID();
+    let expiresAt: string | null = null;
+    if (options?.expiresInHours && options.expiresInHours > 0) {
+      const expDate = new Date();
+      expDate.setHours(expDate.getHours() + options.expiresInHours);
+      expiresAt = expDate.toISOString();
+    }
+
     const demoRecord: ExcelFileRecord = {
       id: fileId,
       original_filename: file.name,
-      storage_path: storagePath,
+      storage_path: `files/${fileId}_${file.name}`,
       file_size: file.size,
       mime_type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       created_at: new Date().toISOString(),
@@ -112,111 +111,100 @@ export async function uploadExcelWorkbook(
     return demoRecord;
   }
 
-  // Live Supabase Handler
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    throw new Error('Supabase client is not available. Please verify your credentials or enable Demo Mode.');
+  // Live Local Storage Backend Upload
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  formData.append('accessMode', options?.accessMode || 'public');
+  if (options?.expiresInHours) {
+    formData.append('expiresInHours', String(options.expiresInHours));
   }
 
-  // Upload binary to Supabase Storage
-  const { error: storageError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  const headers: Record<string, string> = {};
+  if (config.apiKey) {
+    headers['x-api-key'] = config.apiKey;
+  }
+
+  const uploadUrl = `${config.apiUrl}/api/files/upload`;
+
+  try {
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: options?.signal,
     });
 
-  if (storageError) {
-    if (storageError.message.includes('Failed to fetch')) {
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.success) {
+      const errorMsg = data?.error || `Upload failed with status ${response.status}: ${response.statusText}`;
+      throw new Error(errorMsg);
+    }
+
+    const record = data.record as ExcelFileRecord;
+
+    saveLocalHistoryItem({
+      id: record.id,
+      filename: record.original_filename,
+      fileSize: record.file_size,
+      uploadedAt: record.created_at,
+      accessUrl: buildFileAccessUrl(record.id),
+      accessMode: record.access_mode,
+      expiresAt: record.expires_at,
+      deleteToken: record.delete_token,
+    });
+
+    return record;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw err;
+    }
+    const msg = err instanceof Error ? err.message : 'Upload failed';
+    if (msg.includes('Failed to fetch')) {
       throw new Error(
-        `Storage upload failed: "Failed to fetch". This usually means your Supabase project URL is unreachable, or the storage bucket "${BUCKET_NAME}" does not exist. Click "Setup Supabase" to test connection or run the SQL setup script.`
+        `Cannot reach the local storage backend at "${config.apiUrl}". Ensure your Windows laptop is powered on and running the backend and Cloudflare Tunnel.`
       );
     }
-    throw new Error(`Storage upload failed: ${storageError.message}`);
+    throw new Error(msg);
   }
-
-  // Save metadata in PostgreSQL
-  const recordToInsert = {
-    id: fileId,
-    original_filename: file.name,
-    storage_path: storagePath,
-    file_size: file.size,
-    mime_type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    is_active: true,
-    access_mode: options?.accessMode || 'public',
-    expires_at: expiresAt,
-    download_count: 0,
-  };
-
-  const { data: insertedData, error: dbError } = await supabase
-    .from('excel_files')
-    .insert([recordToInsert])
-    .select()
-    .single();
-
-  if (dbError) {
-    try {
-      await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
-    } catch (cleanupErr) {
-      console.error('Failed to cleanup storage file:', cleanupErr);
-    }
-    throw new Error(`Database error: ${dbError.message}. Did you run the SQL migration?`);
-  }
-
-  const record = insertedData as ExcelFileRecord;
-
-  saveLocalHistoryItem({
-    id: record.id,
-    filename: record.original_filename,
-    fileSize: record.file_size,
-    uploadedAt: record.created_at,
-    accessUrl: buildFileAccessUrl(record.id),
-    accessMode: record.access_mode,
-    expiresAt: record.expires_at,
-  });
-
-  return record;
 }
 
 /**
- * Fetch file record by ID (checks Supabase, fallback to Demo storage)
+ * Fetch file record by ID (checks Local Backend, fallback to Demo storage)
  */
 export async function getExcelFileRecord(fileId: string): Promise<{
   record: ExcelFileRecord | null;
   errorStatus?: 'not_found' | 'expired' | 'inactive' | 'error';
   errorMessage?: string;
 }> {
-  const supabase = getSupabaseClient();
+  const config = getStoredApiConfig();
 
-  if (supabase) {
+  if (config.apiUrl) {
     try {
-      const { data, error } = await supabase
-        .from('excel_files')
-        .select('*')
-        .eq('id', fileId)
-        .single();
+      const res = await fetch(`${config.apiUrl}/api/files/${fileId}`);
+      const data = await res.json().catch(() => null);
 
-      if (!error && data) {
-        const record = data as ExcelFileRecord;
-        if (!record.is_active) {
-          return {
-            record: null,
-            errorStatus: 'inactive',
-            errorMessage: 'This spreadsheet has been disabled or deleted by its owner.',
-          };
-        }
-        if (record.expires_at && new Date(record.expires_at) < new Date()) {
-          return {
-            record: null,
-            errorStatus: 'expired',
-            errorMessage: 'This shared Excel link has expired and is no longer accessible.',
-          };
-        }
-        return { record };
+      if (res.ok && data?.success && data?.record) {
+        return { record: data.record as ExcelFileRecord };
+      }
+
+      if (res.status === 410) {
+        return {
+          record: null,
+          errorStatus: data?.errorStatus || 'inactive',
+          errorMessage: data?.error || 'This spreadsheet is no longer accessible.',
+        };
+      }
+
+      if (res.status === 404) {
+        return {
+          record: null,
+          errorStatus: 'not_found',
+          errorMessage: 'Spreadsheet not found. It may have been deleted or the link is incorrect.',
+        };
       }
     } catch (err) {
-      console.warn('Supabase fetch failed, trying local fallback:', err);
+      console.warn('Backend fetch failed, checking demo store:', err);
     }
   }
 
@@ -243,37 +231,35 @@ export async function getExcelFileRecord(fileId: string): Promise<{
   return {
     record: null,
     errorStatus: 'not_found',
-    errorMessage: 'Spreadsheet not found. It may have been deleted or the link is incorrect.',
+    errorMessage: 'Spreadsheet not found or storage backend is unreachable.',
   };
 }
 
 /**
- * Fetch Excel file blob from Supabase Storage or demo storage
+ * Fetch Excel file blob from Local Backend or demo storage
  */
 export async function fetchExcelFileBlob(record: ExcelFileRecord): Promise<Blob> {
-  const supabase = getSupabaseClient();
+  const config = getStoredApiConfig();
   let blob: Blob | null = null;
 
-  if (supabase) {
+  if (config.apiUrl) {
     try {
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .download(record.storage_path);
-      if (!error && data) {
-        blob = data;
+      const res = await fetch(`${config.apiUrl}/api/files/${record.id}/raw`);
+      if (res.ok) {
+        blob = await res.blob();
       }
     } catch (err) {
-      console.warn('Supabase download error, checking local store:', err);
+      console.warn('Backend binary fetch error, checking local store:', err);
     }
   }
 
-  // If not found in Supabase or in demo mode, try local blob
+  // Fallback to demo storage
   if (!blob) {
     blob = await getDemoFileBlob(record.id);
   }
 
   if (!blob) {
-    throw new Error('Workbook data could not be retrieved from storage.');
+    throw new Error('Workbook data could not be retrieved from local storage.');
   }
 
   return blob;
@@ -283,17 +269,27 @@ export async function fetchExcelFileBlob(record: ExcelFileRecord): Promise<Blob>
  * Download original Excel file preserving original filename and content
  */
 export async function downloadExcelFile(record: ExcelFileRecord): Promise<void> {
-  const blob = await fetchExcelFileBlob(record);
+  const config = getStoredApiConfig();
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
+  // If backend is configured, trigger direct download to increment download counter
+  if (config.apiUrl) {
     try {
-      supabase.rpc('increment_download_count', { target_file_id: record.id }).then();
+      const downloadUrl = `${config.apiUrl}/api/files/${record.id}/download`;
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = record.original_filename;
+      anchor.target = '_blank';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      return;
     } catch (err) {
-      console.warn('Could not increment download count:', err);
+      console.warn('Direct download link trigger failed, falling back to blob download:', err);
     }
   }
 
+  // Blob fallback
+  const blob = await fetchExcelFileBlob(record);
   const blobUrl = window.URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = blobUrl;
@@ -305,13 +301,37 @@ export async function downloadExcelFile(record: ExcelFileRecord): Promise<void> 
 }
 
 /**
- * Delete file
+ * Delete file and disable its share link
  */
 export async function deleteExcelFile(record: ExcelFileRecord): Promise<void> {
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    await supabase.storage.from(BUCKET_NAME).remove([record.storage_path]);
-    await supabase.from('excel_files').update({ is_active: false }).eq('id', record.id);
+  const config = getStoredApiConfig();
+  const deleteToken = record.delete_token || getDeleteTokenForFile(record.id);
+
+  if (config.apiUrl) {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (deleteToken) {
+      headers['x-delete-token'] = deleteToken;
+    }
+    if (config.apiKey) {
+      headers['x-api-key'] = config.apiKey;
+    }
+
+    try {
+      const res = await fetch(`${config.apiUrl}/api/files/${record.id}`, {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify({ delete_token: deleteToken }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok && res.status !== 404) {
+        throw new Error(data?.error || 'Failed to delete file from backend');
+      }
+    } catch (err) {
+      console.warn('Could not complete backend deletion:', err);
+      // Still proceed with local history cleanup
+    }
   }
 
   await deleteDemoFile(record.id);

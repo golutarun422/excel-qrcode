@@ -42,7 +42,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <div className="text-center space-y-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shadow-inner">
           <Zap className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Instant Supabase Storage & Permanent Routing</span>
+          <span>Secure Local Storage & Permanent Routing</span>
         </div>
 
         <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">

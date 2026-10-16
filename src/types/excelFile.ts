@@ -11,6 +11,7 @@ export interface ExcelFileRecord {
   access_mode: AccessMode;
   expires_at: string | null;
   download_count: number;
+  delete_token?: string;
 }
 
 export interface UploadProgressState {
@@ -49,4 +50,5 @@ export interface LocalFileHistoryItem {
   accessUrl: string;
   accessMode: AccessMode;
   expiresAt: string | null;
+  deleteToken?: string;
 }
